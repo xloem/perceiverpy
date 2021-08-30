@@ -1,0 +1,3 @@
+[submodule "extern/deepmind/deepmind-research"]
+	path = extern/deepmind/deepmind-research
+	url = https://github.com/deepmind/deepmind-research.git
