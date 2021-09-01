@@ -1,3 +1,6 @@
 [submodule "extern/deepmind/deepmind-research"]
 	path = extern/deepmind/deepmind-research
 	url = https://github.com/deepmind/deepmind-research.git
+[submodule "extern/lucidrains/perceiver-pytorch"]
+	path = extern/lucidrains/perceiver-pytorch
+	url = https://github.com/lucidrains/perceiver-pytorch.git

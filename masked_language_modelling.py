@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2021 DeepMind Technologies Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,15 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.# Install dependencies for Google Colab.
 # If you want to run this notebook on your own machine, you can skip this cell
-!pip install dm-haiku
-!pip install einops
 
-!mkdir /content/perceiver
-!touch /content/perceiver/__init__.py
-!wget -O /content/perceiver/bytes_tokenizer.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/bytes_tokenizer.py
-!wget -O /content/perceiver/io_processors.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/io_processors.py
-!wget -O /content/perceiver/perceiver.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/perceiver.py
-!wget -O /content/perceiver/position_encoding.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/position_encoding.py#@title Import
 from typing import Union
 
 import haiku as hk
@@ -29,11 +22,19 @@ import jax.numpy as jnp
 import numpy as np
 import pickle
 
-from perceiver import perceiver, position_encoding, io_processors, bytes_tokenizer#@title Load parameters from checkpoint
-!wget -O language_perceiver_io_bytes.pickle https://storage.googleapis.com/perceiver_io/language_perceiver_io_bytes.pickle
+from perceiver import perceiver, position_encoding, io_processors, bytes_tokenizer
 
-with open("language_perceiver_io_bytes.pickle", "rb") as f:
-  params = pickle.loads(f.read())#@title Model config
+###################################
+# Load parameters from checkpoint #
+###################################
+
+with open("perceiver_io/language_perceiver_io_bytes.pickle", "rb") as f:
+  params = pickle.loads(f.read())
+
+################
+# Model config #
+################
+
 D_MODEL = 768
 D_LATENTS = 1280
 MAX_SEQ_LEN = 2048
@@ -64,7 +65,12 @@ decoder_config = dict(
     trainable_position_encoding_kwargs=dict(num_channels=D_MODEL))
 
 # The tokenizer is just UTF-8 encoding (with an offset)
-tokenizer = bytes_tokenizer.BytesTokenizer()#@title Decoding Perceiver Model
+tokenizer = bytes_tokenizer.BytesTokenizer()
+
+############################
+# Decoding Perceiver Model #
+############################
+
 def apply_perceiver(
     inputs: jnp.ndarray, input_mask: jnp.ndarray) -> jnp.ndarray:
   """Runs a forward pass on the Perceiver.
@@ -99,14 +105,22 @@ def apply_perceiver(
       embedding_matrix=embedding_layer.embeddings)(output_embeddings)
   return logits
 
-apply_perceiver = hk.transform(apply_perceiver).applyinput_str = "This is an incomplete sentence where some words are missing."
+apply_perceiver = hk.transform(apply_perceiver).apply
+
+input_str = "This is an incomplete sentence where some words are missing."
 input_tokens = tokenizer.to_int(input_str)
 
 # Mask " missing.". Note that the model performs much better if the masked chunk
 # starts with a space.
-input_tokens[51:60] = tokenizer.mask_token
+#input_tokens[51:60] = tokenizer.mask_token
+input_tokens[input_str.find(" incomplete"):60] = tokenizer.mask_token
 print("Tokenized string without masked bytes:")
-print(tokenizer.to_string(input_tokens))#@title Pad and reshape inputs
+print(tokenizer.to_string(input_tokens))
+
+##########################
+# Pad and reshape inputs #
+##########################
+
 inputs = input_tokens[None]
 input_mask = np.ones_like(inputs)
 
@@ -124,7 +138,9 @@ def pad(max_sequence_length: int, inputs, input_mask):
       constant_values=0)
   return padded_inputs, padded_mask
 
-inputs, input_mask = pad(MAX_SEQ_LEN, inputs, input_mask)rng = jax.random.PRNGKey(1)  # Unused
+inputs, input_mask = pad(MAX_SEQ_LEN, inputs, input_mask)
+
+rng = jax.random.PRNGKey(1)  # Unused
 
 out = apply_perceiver(params, rng=rng, inputs=inputs, input_mask=input_mask)
 

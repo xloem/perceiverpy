@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2021 DeepMind Technologies Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,14 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.# Install dependencies for Google Colab.
 # If you want to run this notebook on your own machine, you can skip this cell
-!pip install dm-haiku
-!pip install einops
-
-!mkdir /content/perceiver
-!touch /content/perceiver/__init__.py
-!wget -O /content/perceiver/io_processors.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/io_processors.py
-!wget -O /content/perceiver/perceiver.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/perceiver.py
-!wget -O /content/perceiver/position_encoding.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/position_encoding.py#@title Imports
 
 import functools
 import itertools
@@ -35,7 +28,9 @@ import numpy as np
 
 from perceiver import perceiver, io_processors
 
-#@title Model construction
+######################
+# Model construction #
+######################
 
 # One of learned_position_encoding, fourier_position_encoding, or conv_preprocessing'
 # learned_position_encoding: Uses a learned position encoding over the image
@@ -180,20 +175,15 @@ def imagenet_classifier(config, images):
   return logits
 
 
-imagenet_classifier = hk.transform_with_state(imagenet_classifier)#@title Load parameters from checkpoint
+imagenet_classifier = hk.transform_with_state(imagenet_classifier)
+
+###################################
+# Load parameters from checkpoint #
+###################################
 
 rng = jax.random.PRNGKey(42)
 
-CHECKPOINT_URLS = {
-    'conv_preprocessing': 'https://storage.googleapis.com/perceiver_io/imagenet_conv_preprocessing.pystate',
-    'fourier_position_encoding': 'https://storage.googleapis.com/perceiver_io/imagenet_fourier_position_encoding.pystate',
-    'learned_position_encoding': 'https://storage.googleapis.com/perceiver_io/imagenet_learned_position_encoding.pystate',
-}
-url = CHECKPOINT_URLS[model_type]
-!wget -O imagenet_checkpoint.pystate $url
-
-rng = jax.random.PRNGKey(42)
-with open('imagenet_checkpoint.pystate', 'rb') as f:
+with open(f'perceiver_io/imagenet_{model_type}.pystate', 'rb') as f:
   ckpt = pickle.loads(f.read())
 
 params = ckpt['params']
@@ -1204,12 +1194,17 @@ IMAGENET_LABELS = [
     "bolete",
     "ear, spike, capitulum",
     "toilet tissue, toilet paper, bathroom tissue",
-]# dalmation.jpg is obtained from Getty Images under license
+]
+
+# dalmation.jpg is obtained from Getty Images under license
 # (https://www.gettyimages.co.uk/eula#RF).
 
-!wget -O dog.jpg https://storage.googleapis.com/perceiver_io/dalmation.jpg
-with open('dog.jpg', 'rb') as f:
-  img = imageio.imread(f)#@title Image Utility Functions
+with open('perceiver_io/dalmation.jpg', 'rb') as f:
+  img = imageio.imread(f)
+
+###########################
+# Image Utility Functions #
+###########################
 
 MEAN_RGB = (0.485 * 255, 0.456 * 255, 0.406 * 255)
 STDDEV_RGB = (0.229 * 255, 0.224 * 255, 0.225 * 255)
@@ -1234,13 +1229,17 @@ def resize_and_center_crop(image):
 
   # image = tf.image.crop_to_bounding_box(image_bytes, *crop_window)
   image = image[crop_window[0]:crop_window[0] + crop_window[2], crop_window[1]:crop_window[1]+crop_window[3]]
-  return cv2.resize(image, (224, 224), interpolation=cv2.INTER_CUBIC)# Imagenet classification
+  return cv2.resize(image, (224, 224), interpolation=cv2.INTER_CUBIC)
+
+# Imagenet classification
 
 # Obtain a [224, 224] crop of the image while preserving aspect ratio.
 # With Fourier position encoding, no resize is needed -- the model can
 # generalize to image sizes it never saw in training
 centered_img = resize_and_center_crop(img)  # img
-logits, _ = imagenet_classifier.apply(params, state, rng, CONFIGS[model_type], normalize(centered_img)[None])_, indices = jax.lax.top_k(logits[0], 5)
+logits, _ = imagenet_classifier.apply(params, state, rng, CONFIGS[model_type], normalize(centered_img)[None])
+
+_, indices = jax.lax.top_k(logits[0], 5)
 probs = jax.nn.softmax(logits[0])
 
 plt.imshow(img)

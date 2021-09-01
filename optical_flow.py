@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2021 DeepMind Technologies Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.# Install dependencies for Google Colab.
 # If you want to run this notebook on your own machine, you can skip this cell
-!pip install dm-haiku
-!pip install einops
 
-!mkdir /content/perceiver
-!touch /content/perceiver/__init__.py
-!wget -O /content/perceiver/io_processors.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/io_processors.py
-!wget -O /content/perceiver/perceiver.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/perceiver.py
-!wget -O /content/perceiver/position_encoding.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/position_encoding.py#@title Imports
+###########
+# Imports #
+###########
 
 import functools
 import itertools
@@ -34,9 +31,14 @@ import numpy as np
 import cv2
 import imageio
 
-from perceiver import perceiver, io_processors#@title Model construction
+from perceiver import perceiver, io_processors
+
+######################
+# Model construction #
+######################
 
 FLOW_SCALE_FACTOR = 20
+
 # The network assumes images are of the following size
 TRAIN_SIZE = (368, 496)
 
@@ -104,7 +106,11 @@ def optical_flow(images):
                is_training=False) * FLOW_SCALE_FACTOR
 
 
-optical_flow = hk.transform(optical_flow)#@title Function to compute flow between pairs of images
+optical_flow = hk.transform(optical_flow)
+
+####################################################
+# Function to compute flow between pairs of images #
+####################################################
 
 # If you encounter GPU memory errors while running the function below,
 # you can run it on the CPU instead:
@@ -173,15 +179,19 @@ def compute_optical_flow(params, rng, img1, img2, grid_indices,
     flow_count += jnp.pad(weights, padding)
 
   flows /= flow_count
-  return flows#@title Load parameters from checkpoint
+  return flows
 
-!wget -O optical_flow_checkpoint.pystate https://storage.googleapis.com/perceiver_io/optical_flow_checkpoint.pystate
+###################################
+# Load parameters from checkpoint #
+###################################
 
 rng = jax.random.PRNGKey(42)
-with open("optical_flow_checkpoint.pystate", "rb") as f:
+with open("perceiver_io/optical_flow_checkpoint.pystate", "rb") as f:
   params = pickle.loads(f.read())
 
-state = {}# Download two example frames from the Sintel dataset.
+state = {}
+
+# Download two example frames from the Sintel dataset.
 # These files are obtained from the Sintel dataset test split,
 # downloaded from http://sintel.is.tue.mpg.de/downloads.
 # They correspond to MPI-Sintel-testing/test/clean/cave_3/frame_0001.png
@@ -197,14 +207,14 @@ state = {}# Download two example frames from the Sintel dataset.
 # and are licensed under the Creative Commons Attribution 3.0 license (https://durian.blender.org/sharing/).
 # The images are copyrighted by the Blender Foundation (https://durian.blender.org).
 
-
-!wget -O sintel_frame1.png https://storage.googleapis.com/perceiver_io/sintel_frame1.png
-!wget -O sintel_frame2.png https://storage.googleapis.com/perceiver_io/sintel_frame2.png
-
-with open("sintel_frame1.png", "rb") as f:
+with open("perceiver_io/sintel_frame1.png", "rb") as f:
   im1 = imageio.imread(f)
-with open("sintel_frame2.png", "rb") as f:
-  im2 = imageio.imread(f)#@title Image Utility Functions
+with open("perceiver_io/sintel_frame2.png", "rb") as f:
+  im2 = imageio.imread(f)
+
+###########################
+# Image Utility Functions #
+###########################
 
 def normalize(im):
   return im / 255.0 * 2 - 1
@@ -219,10 +229,14 @@ def visualize_flow(flow):
   hsv[..., 0] = ang / np.pi / 2 * 180
   hsv[..., 1] = np.clip(mag * 255 / 24, 0, 255)
   bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-  plt.imshow(bgr)# Compute optical flow
+  plt.imshow(bgr)
+
+# Compute optical flow
 
 # Divide images into patches, compute flow between corresponding patches
 # of both images, and stitch the flows together
 grid_indices = compute_grid_indices(im1.shape)
-flow = compute_optical_flow(params, rng, normalize(im1), normalize(im2), grid_indices)# Visualize the computed flow
+flow = compute_optical_flow(params, rng, normalize(im1), normalize(im2), grid_indices)
+
+# Visualize the computed flow
 visualize_flow(flow[0])

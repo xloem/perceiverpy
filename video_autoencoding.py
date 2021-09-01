@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2021 DeepMind Technologies Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.# Install dependencies for Google Colab.
 # If you want to run this notebook on your own machine, you can skip this cell
-!pip install dm-haiku
-!pip install einops
 
-!mkdir /content/perceiver
-!touch /content/perceiver/__init__.py
-!wget -O /content/perceiver/io_processors.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/io_processors.py
-!wget -O /content/perceiver/perceiver.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/perceiver.py
-!wget -O /content/perceiver/position_encoding.py https://raw.githubusercontent.com/deepmind/deepmind-research/master/perceiver/position_encoding.py#@title Imports
+###########
+# Imports #
+###########
 
 import base64
 import functools
@@ -42,7 +39,10 @@ import scipy.io.wavfile
 from IPython.display import HTML
 
 from perceiver import perceiver, io_processors
-#@title Helper functions for the UCF101 dataset
+
+###########################################
+# Helper functions for the UCF101 dataset #
+###########################################
 
 # Utilities to fetch videos from UCF101 dataset
 UCF_ROOT = 'https://www.crcv.ucf.edu/THUMOS14/UCF101/UCF101/'
@@ -50,13 +50,14 @@ _VIDEO_LIST = None
 _CACHE_DIR = tempfile.mkdtemp()
 # As of July 2020, crcv.ucf.edu doesn't use a certificate accepted by the
 # default Colab environment anymore.
-unverified_context = ssl._create_unverified_context()
+#unverified_context = ssl._create_unverified_context()
 
 def list_ucf_videos():
   """Lists videos available in UCF101 dataset."""
   global _VIDEO_LIST
   if not _VIDEO_LIST:
-    index = request.urlopen(UCF_ROOT, context=unverified_context).read().decode('utf-8')
+    #index = request.urlopen(UCF_ROOT, context=unverified_context).read().decode('utf-8')
+    index = request.urlopen(UCF_ROOT).read().decode('utf-8')
     videos = re.findall('(v_[\w_]+\.avi)', index)
     _VIDEO_LIST = sorted(set(videos))
   return list(_VIDEO_LIST)
@@ -120,13 +121,13 @@ video_names = list_ucf_videos()
 video_path = fetch_ucf_video(video_names[0])
 
 # Extract audio using FFMPEG and encode as pcm float wavfile (only format readable by scipy.io.wavfile).
-!yes | ffmpeg -i "$video_path"  -c copy  -f wav -map 0:a pcm_f32le -ar 48000 output.wav
+#!yes | ffmpeg -i "$video_path"  -c copy  -f wav -map 0:a pcm_f32le -ar 48000 output.wav
 
-sample_rate, audio = scipy.io.wavfile.read("output.wav")
-if audio.dtype == np.int16:
-  audio = audio.astype(np.float32) / 2**15
-elif audio.dtype != np.float32:
-  raise ValueError('Unexpected datatype. Model expects sound samples to lie in [-1, 1]')
+#sample_rate, audio = scipy.io.wavfile.read("output.wav")
+#if audio.dtype == np.int16:
+#  audio = audio.astype(np.float32) / 2**15
+#elif audio.dtype != np.float32:
+#  raise ValueError('Unexpected datatype. Model expects sound samples to lie in [-1, 1]')
 
 video = load_video(video_path)#@title Kinetics 700 Classes
 KINETICS_CLASSES = ["abseiling", "acting in play", "adjusting glasses", "air drumming", 
@@ -476,10 +477,8 @@ def autoencode_video(params, state, rng, images, audio):
   reconstruction['audio'] = jnp.reshape(reconstruction['audio'], audio.shape)
   return reconstruction#@title Load parameters from checkpoint
 
-!wget -O video_autoencoding_checkpoint.pystate https://storage.googleapis.com/perceiver_io/video_autoencoding_checkpoint.pystate
-
 rng = jax.random.PRNGKey(42)
-with open("video_autoencoding_checkpoint.pystate", "rb") as f:
+with open("perceiver_io/video_autoencoding_checkpoint.pystate", "rb") as f:
   params = pickle.loads(f.read())
 
 state = {}# Auto-encode the first 16 frames of the video and one of the audio channels
