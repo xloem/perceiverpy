@@ -72,6 +72,9 @@ class SuperTrainer:
     # focus on the area with the greatest loss
 
     # todo: this would work better if Performer.update returned the individual losses
+    #    then disparate data could be collected in the same batch which would greatly speed learning important differences
+
+    # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
 
     def __init__(self, performer, databatches):
         self.performer = performer
@@ -87,13 +90,6 @@ class SuperTrainer:
         self.batch_losses.sort()
 
         self.baseline = self.batch_losses[0].loss#2#0.5
-
-            # it can get stuff right by chance, and that happens with the first batch
-            # so waiting for that first batch to bubble up fails
-            # averaging it with something would help; i guess the hardest
-
-        #hardest_loss = self.batch_losses[-1].loss
-        #newest = self.batch_losses[0]
         newest = self.batch_losses[-1]
         hardest = newest
         epoch = 0
@@ -107,22 +103,28 @@ class SuperTrainer:
                 easiest = self.batch_losses[0]
 
                 # new data too
-                newest = self._newbatch()
-                newest.epoch = epoch
+                #print('getting a new batch')
+                while True:
+                    newest = self._newbatch()
+                    newest.epoch = epoch
+                    #print('new data, loss =', newest.loss.item())
+                    if newest.loss > self.baseline:
+                        break
+                    else:
+                        self.baseline = (self.baseline + newest.loss) / 2
 
                 max_loss = easiest if easiest > newest else newest
 
-                if newest.loss > self.baseline:
-                    for item in self.batch_losses:
-                        item.epoch = epoch
-                        if item is not hardest:
-                            # OOPS: we'd probably only want to backpropagate if predictions are much worse
-                            item.update()
-                        if item.loss > max_loss:
-                            max_loss = item
-                        #elif item.loss < self.baseline:
-                        #    self.baseline = (self.baseline + item.loss) / 2
-                            #yield item
+                for item in self.batch_losses:
+                    item.epoch = epoch
+                    if item is not hardest and max_loss.loss > self.baseline:
+                        # OOPS: we'd probably only want to backpropagate if predictions are much worse
+                        item.update()
+                    if item.loss > max_loss:
+                        max_loss = item
+                    #elif item.loss < self.baseline:
+                    #    self.baseline = (self.baseline + item.loss) / 2
+                        #yield item
 
                 hardest = max_loss
                 self.baseline = (hardest.loss + easiest.loss) / 2 # this can hit 0.000, which likely confuses the model, overfitting it needleslly.  a minimum relating to the number of datapoints could make sense  
@@ -131,6 +133,8 @@ class SuperTrainer:
                     self.baseline = 0.25
                     
                 yield max_loss.idx, max_loss.loss
+            
+                #print('target:', self.baseline.item())
                 #yield newest
             else:
                 hardest = self.batch_losses[-1]
@@ -241,7 +245,7 @@ class Test:
             #        print('%5d loss=%.3f avg=%.3f' % (i, loss, running_loss / (idx - running_last)))
             #        running_loss = 0
             #        running_last = idx
-            print('%5d maxloss=%.3f baseline=%.3f' % (i * self.batch_size, loss, self.trainer.baseline))
+            print('%5d maxloss=%.3f newbaseline=%.3f' % (i * self.batch_size, loss, self.trainer.baseline))
             idx += 1
     
         print('trained')
