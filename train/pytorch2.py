@@ -72,6 +72,9 @@ class SuperTrainer:
     # focus on the area with the greatest loss
 
     # todo: this would work better if Performer.update returned the individual losses
+    #    then disparate data could be collected in the same batch which would greatly speed learning important differences
+
+    # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
 
     def __init__(self, performer, databatches):
         self.performer = performer
@@ -87,13 +90,6 @@ class SuperTrainer:
         self.batch_losses.sort()
 
         self.baseline = self.batch_losses[0].loss#2#0.5
-
-            # it can get stuff right by chance, and that happens with the first batch
-            # so waiting for that first batch to bubble up fails
-            # averaging it with something would help; i guess the hardest
-
-        #hardest_loss = self.batch_losses[-1].loss
-        #newest = self.batch_losses[0]
         newest = self.batch_losses[-1]
         hardest = newest
         epoch = 0
