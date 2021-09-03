@@ -103,8 +103,15 @@ class SuperTrainer:
                 easiest = self.batch_losses[0]
 
                 # new data too
-                newest = self._newbatch()
-                newest.epoch = epoch
+                #print('getting a new batch')
+                while True:
+                    newest = self._newbatch()
+                    newest.epoch = epoch
+                    #print('new data, loss =', newest.loss.item())
+                    if newest.loss > self.baseline:
+                        break
+                    else:
+                        self.baseline = (self.baseline + newest.loss) / 2
 
                 max_loss = easiest if easiest > newest else newest
 
@@ -126,6 +133,8 @@ class SuperTrainer:
                     self.baseline = 0.25
                     
                 yield max_loss.idx, max_loss.loss
+            
+                #print('target:', self.baseline.item())
                 #yield newest
             else:
                 hardest = self.batch_losses[-1]
@@ -236,7 +245,7 @@ class Test:
             #        print('%5d loss=%.3f avg=%.3f' % (i, loss, running_loss / (idx - running_last)))
             #        running_loss = 0
             #        running_last = idx
-            print('%5d maxloss=%.3f baseline=%.3f' % (i * self.batch_size, loss, self.trainer.baseline))
+            print('%5d maxloss=%.3f newbaseline=%.3f' % (i * self.batch_size, loss, self.trainer.baseline))
             idx += 1
     
         print('trained')
