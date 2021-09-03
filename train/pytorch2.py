@@ -86,7 +86,7 @@ class SuperTrainer:
         self.batch_losses = [ SuperTrainer.BatchLoss(self), SuperTrainer.BatchLoss(self) ]
         self.batch_losses.sort()
 
-        baseline = self.batch_losses[0].loss#2#0.5
+        self.baseline = self.batch_losses[0].loss#2#0.5
 
             # it can get stuff right by chance, and that happens with the first batch
             # so waiting for that first batch to bubble up fails
@@ -100,7 +100,7 @@ class SuperTrainer:
         while True:
             self.batch_losses.sort()
             #if self.batch_losses[-1] is newest:
-            if self.batch_losses[-1].loss <= baseline:#(hardest_loss + newest.loss) / 2:
+            if self.batch_losses[-1].loss <= self.baseline:#(hardest_loss + newest.loss) / 2:
                 # we learned a lot from our hardest example
                 # we can set a mark and update what we know about all our examples
                 epoch += 1
@@ -119,11 +119,12 @@ class SuperTrainer:
                         item.update()
                     if item.loss > max_loss:
                         max_loss = item
-                    elif item.loss < baseline:
-                        baseline = (baseline + item.loss) / 2
+                    #elif item.loss < self.baseline:
+                    #    self.baseline = (self.baseline + item.loss) / 2
                         #yield item
 
                 hardest = max_loss
+                self.baseline = (hardest.loss + easiest.loss) / 2
                     
                 yield max_loss.idx, max_loss.loss
                 #yield newest
@@ -199,12 +200,13 @@ class transformed_list:
         return len(self.src)
 
 def test():
+    batch_size = 4
     import torchvision
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=8, shuffle=True, num_workers=2)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2)
     testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     import perceiver_pytorch as pp
@@ -233,7 +235,7 @@ def test():
         #        print('%5d loss=%.3f avg=%.3f' % (i, loss, running_loss / (idx - running_last)))
         #        running_loss = 0
         #        running_last = idx
-        print('%5d max loss=%.3f' % (i, loss))
+        print('%5d maxloss=%.3f baseline=%.3f' % (i * batch_size, loss, trainer.baseline))
         idx += 1
 
     print('trained')
