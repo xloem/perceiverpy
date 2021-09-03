@@ -141,31 +141,15 @@ class SuperTrainer:
                 hardest.update()
                 #yield hardest
 
-
-            # # study hardest example
-            # batch_losses[-1].update()
-            # yield batch_losses[-1]
-
-            # if batch_losses[-1] is not interest:
-            #     # a new example is hardest, meaning we have learned about our hardest example
-            #     print('studied', interest, ' hardest =', batch_losses[-1], ' easiest =', batch_losses[0])
-
-            #     # update easiest example with new knowledge
-            #     batch_losses[0].update()
-
-            #     if batch_losses[0] <= batch_losses[1]:
-            #         # new knowledge didn't change easiness of easiest example
-            #         # get more diverse data
-            #         interest = self._newbatch()
-            #     else:
-            #         # new knowledge mutated results from old knowledge
-            #         yield batch_losses[0]
-
     def _newbatch(self):
         batch = SuperTrainer.BatchLoss(self)
         if len(self.batch_losses) >= 256:
-            self.batch_losses[:-1] = self.batch_losses[1:]
-            self.batch_losses[-1] = batch
+            if batch > self.batch_losses[0]:
+                # this code of dropping the easiest batch, and placing the new batch at the head,
+                # is kept to preserve the concept of the newest being the most interesting,
+                # in case of redesign
+                self.batch_losses[:-1] = self.batch_losses[1:]
+                self.batch_losses[-1] = batch
         else:
             self.batch_losses.append(batch)
         return batch
