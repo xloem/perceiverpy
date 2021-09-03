@@ -124,7 +124,10 @@ class SuperTrainer:
                         #yield item
 
                 hardest = max_loss
-                self.baseline = (hardest.loss + easiest.loss) / 2
+                self.baseline = (hardest.loss + easiest.loss) / 2 # this can hit 0.000, which likely confuses the model, overfitting it needleslly.  a minimum relating to the number of datapoints could make sense  
+                                                                  # maybe instead of a loss baseline, it would make more sense to have predictions be correct.  [also option of predicting class and alternate class or such]
+                if self.baseline < 0.25:
+                    self.baseline = 0.25
                     
                 yield max_loss.idx, max_loss.loss
                 #yield newest
