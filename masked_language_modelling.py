@@ -85,6 +85,7 @@ def apply_perceiver(
   """
   assert inputs.shape[1] == MAX_SEQ_LEN
 
+  # embedding encoding
   embedding_layer = hk.Embed(
       vocab_size=tokenizer.vocab_size,
       embed_dim=D_MODEL)
@@ -92,6 +93,7 @@ def apply_perceiver(
 
   batch_size = embedded_inputs.shape[0]
 
+  # batch size encoding
   input_pos_encoding = perceiver.position_encoding.TrainablePositionEncoding(
       index_dim=MAX_SEQ_LEN, num_channels=D_MODEL)
   embedded_inputs = embedded_inputs + input_pos_encoding(batch_size)
