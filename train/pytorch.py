@@ -2,31 +2,39 @@ import perceiver_pytorch as pp
 import torch
 
 class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(), optimizer = None):
+    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(), optimizer = None, dev = 'cuda:0'):
         if optimizer is None:
             optimizer = 1e-3
         if type(optimizer) is float:
             optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
+        if type(dev) is str:
+            dev = torch.device(dev)
+        model.to(dev)
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
+        self.dev = dev
         self.last_result = None
     @staticmethod
-    def _tensor(data):
+    def _tensor(data, dev):
         if type(data) is not torch.Tensor:
-            data = torch.Tensor(data)
+            data = torch.tensor(data, device=dev)
         return data
     def predict(self, *data):
-        # data would be tensors
-        self.last_predictions = self.model(torch.Tensor(data))
+        self.optimizer.zero_grad() # reset gradients of parameters
+
+        data = torch.stack([self._tensor(item, None) for item in data])
+        data = data.to(self.dev)
+
+        self.last_predictions = self.model(data)
         return self.last_predictions
     def update(self, *better_results):
-        # be nice if this associated with the gradients calculated for data, if they are used, probably pulloutable
-            # might need to put these lists on device
-        loss = self.loss_fn(self.last_predictions, torch.Tensor(better_results))
+        better_results = torch.stack([self._tensor(result, None) for result in better_results])
+        better_results = better_results.to(self.dev)
 
-        self.optimizer.zero_grad() # reset gradients of parameters
-        loss.backward() # backpropagate prediction loss, deposit grdaients of loss wrt each parameter
+        loss = self.loss_fn(self.last_predictions, better_results)
+
+        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
         self.optimizer.step() # adjust parameters by gradients collected in backward()
         return loss
 
@@ -54,4 +62,48 @@ class Perform:
       #      if you are fourier encoding the data yourself.
       #  self_per_cross_attn: Number of self attention blocks per cross attn.
 
-perform = Perform(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
+
+def test():
+    import torchvision
+    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=4, shuffle=False, num_workers=2)
+    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+    import perceiver_pytorch as pp
+    model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+    perform = Perform(model, criterion, optimizer, dev = 'cuda:0')
+
+    import time
+    last_time = time.time()
+    running_loss = 0.0
+    for i, data in enumerate(trainloader, 0):
+        inputs, labels = data
+        perform.predict(*inputs.permute(0,2,3,1))  
+        loss = perform.update(*labels)
+        running_loss += loss.item()
+        if i % 16 == 0:
+            cur_time = time.time()
+            if cur_time - last_time > 0.2:
+                last_time = cur_time
+                print('%5d loss=%.3f running_loss=%.3f' % (i, loss, running_loss))
+
+    print('trained')
+    import numpy as np
+    tests, labels = iter(testloader).next()
+    def preds2words(preds):
+        return preds.detach().cpu().numpy()
+    print('labels:', [classes[l] for l in labels])
+    preds = perform.predict(*tests.permute(0,2,3,1))
+    preds = preds.detach().cpu().numpy()
+    labels = [np.argmax(i) for i in preds]
+    print('preds:', [classes[l] for l in labels])
+
+#perform = Perform(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
+if __name__ == '__main__':
+    test()
