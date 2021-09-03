@@ -112,16 +112,17 @@ class SuperTrainer:
 
                 max_loss = easiest if easiest > newest else newest
 
-                for item in self.batch_losses:
-                    item.epoch = epoch
-                    if item is not hardest and max_loss.loss > self.baseline:
-                        # OOPS: we'd probably only want to backpropagate if predictions are much worse
-                        item.update()
-                    if item.loss > max_loss:
-                        max_loss = item
-                    #elif item.loss < self.baseline:
-                    #    self.baseline = (self.baseline + item.loss) / 2
-                        #yield item
+                if newest.loss > self.baseline:
+                    for item in self.batch_losses:
+                        item.epoch = epoch
+                        if item is not hardest:
+                            # OOPS: we'd probably only want to backpropagate if predictions are much worse
+                            item.update()
+                        if item.loss > max_loss:
+                            max_loss = item
+                        #elif item.loss < self.baseline:
+                        #    self.baseline = (self.baseline + item.loss) / 2
+                            #yield item
 
                 hardest = max_loss
                 self.baseline = (hardest.loss + easiest.loss) / 2 # this can hit 0.000, which likely confuses the model, overfitting it needleslly.  a minimum relating to the number of datapoints could make sense  
