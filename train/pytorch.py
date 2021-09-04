@@ -1,42 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(), optimizer = None, dev = 'cuda:0'):
-        if optimizer is None:
-            optimizer = 1e-3
-        if type(optimizer) is float:
-            optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
-        if type(dev) is str:
-            dev = torch.device(dev)
-        model.to(dev)
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.dev = dev
-        self.last_result = None
-    @staticmethod
-    def _tensor(data, dev):
-        if type(data) is not torch.Tensor:
-            data = torch.tensor(data, device=dev)
-        return data
-    def predict(self, *data):
-        self.optimizer.zero_grad() # reset gradients of parameters
-
-        data = torch.stack([self._tensor(item, None) for item in data])
-        data = data.to(self.dev)
-
-        self.last_predictions = self.model(data)
-        return self.last_predictions
-    def update(self, *better_results):
-        better_results = torch.stack([self._tensor(result, None) for result in better_results])
-        better_results = better_results.to(self.dev)
-
-        loss = self.loss_fn(self.last_predictions, better_results)
-
-        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
-        self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return loss
+from pytorch_model import PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -67,31 +32,46 @@ def test():
     import torchvision
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
     testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=4, shuffle=False, num_workers=2)
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     import perceiver_pytorch as pp
-    model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
-    criterion = torch.nn.CrossEntropyLoss()
+    model = pp.Perceiver(input_channels=3, input_axis=2, fourier_encode_data=True, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
+    print(next(model.parameters()), 'sometimes i see model parameters that start for some reason all near zero.  that is a bug.  parameters above should be near unit magnitude.')
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    perform = Perform(model, criterion, optimizer, dev = 'cuda:0')
+    perform = PytorchModel(model, criterion, optimizer, dev = 'cuda:0')
 
     import time
     last_time = time.time()
+    start_time = last_time
+    start_loss = None
+    last_avg_loss = None
     running_loss = 0.0
-    for i, data in enumerate(trainloader, 0):
-        inputs, labels = data
-        perform.predict(*inputs.permute(0,2,3,1))  
-        loss = perform.update(*labels)
-        running_loss += loss.item()
-        if i % 16 == 0:
-            cur_time = time.time()
-            if cur_time - last_time > 0.2:
-                last_time = cur_time
-                print('%5d loss=%.3f running_loss=%.3f' % (i, loss, running_loss))
+    running_ct = 0
+    for epoch in range(3):
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
+        for i, data in enumerate(trainloader, 0):
+            inputs, labels = data
+            perform.predict(*inputs.permute(0,2,3,1))  
+            losses = perform.update(*labels)
+            maxloss = torch.max(losses)
+            if start_loss is None or maxloss > start_loss:
+                start_loss = maxloss
+            running_loss += torch.sum(losses)
+            running_ct += len(losses)
+            if running_ct > len(losses) and (i*len(losses)) % 1024 == 0:
+                cur_time = time.time()
+                if cur_time - last_time > 0.2:
+                    avg_loss = running_loss / running_ct
+                    if last_avg_loss is None:
+                        last_avg_loss = float('nan')
+                    lossrate = (last_avg_loss - avg_loss) / (cur_time - last_time)
+                    print('%d %5d avg_loss=%.3f %.5f loss/min' % (epoch+1, i * len(losses), avg_loss, 60*lossrate))
+                    last_avg_loss = avg_loss
+                    last_time = cur_time
 
     print('trained')
     import numpy as np
