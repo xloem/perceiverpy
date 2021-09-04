@@ -1,54 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(reduction='none'), optimizer = None, dev = 'cuda:0'):
-        if optimizer is None:
-            #optimizer = torch.optim.Rprop()
-            optimizer = 1e-3
-        if type(optimizer) is float:
-            #optimizer = torch.optim.Adam(model.parameters(), lr=optimizer)
-            optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
-        if type(dev) is str:
-            dev = torch.device(dev)
-        model.to(dev)
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.optimizer_state = optimizer.state_dict()
-        self.dev = dev
-        self.last_result = None
-    @staticmethod
-    def _tensor(data, dev):
-        if type(data) is not torch.Tensor:
-            data = torch.tensor(data, device=dev)
-        return data
-    def predict(self, *data):
-        return self.predict_many(data)
-    def predict_many(self, *datas):
-        self.optimizer.zero_grad() # reset gradients of parameters
-        self.last_predictions = []
-
-        for data in datas:
-
-            data = torch.stack([self._tensor(item, None) for item in data])
-            data = data.to(self.dev)
-
-            self.last_predictions.append(self.model(data))
-
-        self.last_predictions = torch.cat(self.last_predictions)
-        return self.last_predictions
-
-    def update(self, *better_results):
-        better_results = torch.stack([self._tensor(result, None) for result in better_results])
-        better_results = better_results.to(self.dev)
-
-        losses = self.loss_fn(self.last_predictions, better_results)
-        loss = torch.mean(losses)
-
-        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
-        self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return losses
+from pytorch_model import PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -85,11 +38,11 @@ def test():
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     import perceiver_pytorch as pp
-    model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
+    model = pp.Perceiver(input_channels=3, input_axis=2, fourier_encode_data=True, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    perform = Perform(model, criterion, optimizer, dev = 'cuda:0')
+    perform = PytorchModel(model, criterion, optimizer, dev = 'cuda:0')
 
     import time
     last_time = time.time()
