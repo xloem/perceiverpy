@@ -38,7 +38,7 @@ def test():
 
     import perceiver_pytorch as pp
     model = pp.Perceiver(input_channels=3, input_axis=2, fourier_encode_data=True, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
-    print(next(model.parameters()), 'sometimes i see model parameters that start for some reason all near zero.  that is a bug.  parameters above should be near unit magnitude.')
+    #print(next(model.parameters()), 'sometimes i see model parameters that start for some reason all near zero.  that is a bug.  parameters above should be near unit magnitude.')
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
@@ -62,7 +62,7 @@ def test():
                 start_loss = maxloss
             running_loss += torch.sum(losses)
             running_ct += len(losses)
-            if running_ct > len(losses) and (i*len(losses)) % 1024 == 0:
+            if (i*len(losses)) % 1024 == 0 and running_ct > len(losses):
                 cur_time = time.time()
                 if cur_time - last_time > 0.2:
                     avg_loss = running_loss / running_ct
@@ -72,6 +72,8 @@ def test():
                     print('%d %5d avg_loss=%.3f %.5f loss/min' % (epoch+1, i * len(losses), avg_loss, 60*lossrate))
                     last_avg_loss = avg_loss
                     last_time = cur_time
+                    running_loss = 0
+                    running_ct = 0
 
     print('trained')
     import numpy as np

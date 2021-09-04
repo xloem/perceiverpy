@@ -1,42 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(), optimizer = None, dev = 'cuda:0'):
-        if optimizer is None:
-            optimizer = 1e-3
-        if type(optimizer) is float:
-            optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
-        if type(dev) is str:
-            dev = torch.device(dev)
-        model.to(dev)
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.dev = dev
-        self.last_result = None
-    @staticmethod
-    def _tensor(data, dev):
-        if type(data) is not torch.Tensor:
-            data = torch.tensor(data, device=dev)
-        return data
-    def predict(self, *data):
-        self.optimizer.zero_grad() # reset gradients of parameters
-
-        data = torch.stack([self._tensor(item, None) for item in data])
-        data = data.to(self.dev)
-
-        self.last_predictions = self.model(data)
-        return self.last_predictions
-    def update(self, *better_results):
-        better_results = torch.stack([self._tensor(result, None) for result in better_results])
-        better_results = better_results.to(self.dev)
-
-        loss = self.loss_fn(self.last_predictions, better_results)
-
-        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
-        self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return loss
+from pytorch_model import PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -71,10 +36,8 @@ class SuperTrainer:
     # license: gpl-3
     # focus on the area with the greatest loss
 
-    # todo: this would work better if Performer.update returned the individual losses
-    #    then disparate data could be collected in the same batch which would greatly speed learning important differences
-
     # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
+    # todo: label data as certain/unsure to help train the model
 
     def __init__(self, performer, databatches):
         self.performer = performer
@@ -88,13 +51,16 @@ class SuperTrainer:
     def train(self):
         self.batch_losses = [ SuperTrainer.BatchLoss(self), SuperTrainer.BatchLoss(self) ]
         self.batch_losses.sort()
-
         self.baseline = self.batch_losses[0].loss#2#0.5
+
+        for batch_loss in self.batch_losses:
+            yield batch_loss.idxs, batch_loss.idxs, batch_loss.losses
+
         newest = self.batch_losses[-1]
         hardest = newest
         epoch = 0
         while True:
-            self.batch_losses.sort()
+            SuperTrainer.BatchLoss.sort(*self.batch_losses)
             #if self.batch_losses[-1] is newest:
             if self.batch_losses[-1].loss <= self.baseline:#(hardest_loss + newest.loss) / 2:
                 # we learned a lot from our hardest example
@@ -108,6 +74,7 @@ class SuperTrainer:
                     newest = self._newbatch()
                     newest.epoch = epoch
                     #print('new data, loss =', newest.loss.item())
+                    yield hardest.idxs, newest.idxs, newest.losses
                     if newest.loss > self.baseline:
                         break
                     else:
@@ -132,7 +99,7 @@ class SuperTrainer:
                 if self.baseline < 0.25:
                     self.baseline = 0.25
                     
-                yield max_loss.idx, max_loss.loss
+                #yield max_loss.idx, max_loss.loss
             
                 #print('target:', self.baseline.item())
                 #yield newest
@@ -158,23 +125,66 @@ class SuperTrainer:
     class BatchLoss:
         def __init__(self, trainer):
             self.trainer = trainer
-            self.idx = trainer._nextidx
-            trainer._nextidx += 1
             self.batch = next(self.trainer.databatches)
+            idx = trainer._nextidx
+            trainer._nextidx += len(self)
+            self.idxs = torch.arange(idx, trainer._nextidx)
             self.update()
-        def update(self):
-            inputs, labels = self.batch#trainer.databatches[self.idx]
-            self.trainer.performer.predict(*inputs)
-            self.loss = self.trainer.performer.update(*labels)
-            return self.loss
+        def update(*batches):
+            inputslabels = [batch.batch for batch in batches]
+            inputs = [inputs for inputs, labels in inputslabels]
+            labels = torch.cat([labels for inputs, labels in inputslabels])
+            self = batches[0]
+            self.trainer.performer.predict_many(*inputs)
+            losses = self.trainer.performer.update(*labels)
+            #loss = torch.mean(losses)
+            offset = 0
+            for batch in batches:
+                batch.losses = losses[offset:offset+len(batch)]
+                batch.loss = torch.max(batch.losses).item()
+                offset += len(batch)
+                #batch.loss = torch.mean(batch.losses)
+            return losses
+        def shuffle(*batches):
+            idxs = torch.cat([batch.idxs for batch in batches])
+            inputs = torch.cat([batch.batch[0] for batch in batches])
+            labels = torch.cat([batch.batch[1] for batch in batches])
+            losses = torch.cat([batch.losses for batch in batches])
+            shuf = torch.randperm(len(idxs))
+            offset = 0
+            for batch in batches:
+                idcs = shuf[offset:offset+len(batch)]
+                batch.idxs = idxs[idcs]
+                batch.batch = (inputs[idcs], labels[idcs])
+                batch.losses = losses[idcs]
+                batch.loss = torch.max(batch.losses).item()
+                offset += len(batch)
+        def sort(*batches):
+            idxs = torch.cat([batch.idxs for batch in batches])
+            inputs = torch.cat([batch.batch[0] for batch in batches])
+            labels = torch.cat([batch.batch[1] for batch in batches])
+            losses = torch.cat([batch.losses for batch in batches])
+
+            shuf = torch.sort(losses).indices
+
+            offset = 0
+            for batch in batches:
+                idcs = shuf[offset:offset+len(batch)]
+                batch.idxs = idxs[idcs]
+                batch.batch = (inputs[idcs], labels[idcs])
+                batch.losses = losses[idcs]
+                batch.loss = torch.max(batch.losses).item()
+                offset += len(batch)
+        def __len__(self):
+            return len(self.batch[0])
         def __float__(self):
-            return self.loss.item()
+            return self.loss
         def __eq__(self, other):
             return float(self) == float(other)
         def __lt__(self, other):
             return float(self) < float(other)
         def __str__(self):
-            return str((self.idx, self.loss.item()))
+            return str(float(self)) + ' ' + str([*zip([float(idx) for idx in self.idxs], [float(loss) for loss in self.losses])])
             
 
 class transformed_list:
@@ -204,33 +214,46 @@ class Test:
 
         import perceiver_pytorch as pp
         self.model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
-        self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
 
-        self.perform = Perform(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
+        self.perform = PytorchModel(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
 
         self.trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.trainloader)
         self.testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.testloader)
-
 
         self.trainer = SuperTrainer(self.perform, self.trainloader)
     def test(self):
         import time
         last_time = time.time()
+        start_time = last_time
+        start_loss = None
+        last_avg_loss = None
         running_loss = 0.0
-        running_last = -1
+        running_baseline = 0.0
+        running_ct = 0
         idx = 0
-        for i, loss in self.trainer.train():
-            running_loss += loss.item()
-            #if idx % 16 == 0:
-            #    cur_time = time.time()
-            #    if cur_time - last_time > 0.2:
-            #        last_time = cur_time
-            #        print('%5d loss=%.3f avg=%.3f' % (i, loss, running_loss / (idx - running_last)))
-            #        running_loss = 0
-            #        running_last = idx
-            print('%5d maxloss=%.3f newbaseline=%.3f' % (i * self.batch_size, loss, self.trainer.baseline))
-            idx += 1
+        for learned_idxs, idxs, losses in self.trainer.train():
+            running_loss += torch.sum(losses)
+            running_baseline += self.trainer.baseline * len(losses)
+            running_ct += len(losses)
+            idx += len(losses)
+            
+            print('%s maxloss=%.3f avg_loss=%.3f newbaseline=%.3f' % (str([i.item() for i in learned_idxs]), torch.max(losses), running_loss / running_ct, self.trainer.baseline))
+            if idx % 1024 == 0 and running_ct > len(losses):
+                cur_time = time.time()
+                if cur_time - last_time > 0.2:
+                    avg_loss = running_loss / running_ct
+                    avg_baseline = running_baseline / running_ct
+                    if last_avg_loss is None:
+                        las_avg_loss = float('nan')
+                    lossrate = (last_avg_loss - avg_loss) / (cur_time - last_time)
+                    print('%5d avg_loss=%.3f %.5f loss/min avg_baseline=%.3f' % (idx, avg_loss, 60*lossrate, avg_baseline))
+                    last_avg_loss = avg_loss
+                    last_time = cur_time
+                    running_loss = 0
+                    running_baseline = 0
+                    running_ct = 0
     
         print('trained')
         import numpy as np
@@ -243,7 +266,6 @@ class Test:
         labels = [np.argmax(i) for i in preds]
         print('preds:', [self.classes[l] for l in labels])
 
-#perform = Perform(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
 if __name__ == '__main__':
     Test().test()
 
