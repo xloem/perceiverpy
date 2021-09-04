@@ -2,10 +2,12 @@ import perceiver_pytorch as pp
 import torch
 
 class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(), optimizer = None, dev = 'cuda:0'):
+    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(reduction='none'), optimizer = None, dev = 'cuda:0'):
         if optimizer is None:
+            #optimizer = torch.optim.Rprop()
             optimizer = 1e-3
         if type(optimizer) is float:
+            #optimizer = torch.optim.Adam(model.parameters(), lr=optimizer)
             optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
         if type(dev) is str:
             dev = torch.device(dev)
@@ -13,6 +15,7 @@ class Perform:
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
+        self.optimizer_state = optimizer.state_dict()
         self.dev = dev
         self.last_result = None
     @staticmethod
@@ -21,22 +24,31 @@ class Perform:
             data = torch.tensor(data, device=dev)
         return data
     def predict(self, *data):
+        return self.predict_many(data)
+    def predict_many(self, *datas):
         self.optimizer.zero_grad() # reset gradients of parameters
+        self.last_predictions = []
 
-        data = torch.stack([self._tensor(item, None) for item in data])
-        data = data.to(self.dev)
+        for data in datas:
 
-        self.last_predictions = self.model(data)
+            data = torch.stack([self._tensor(item, None) for item in data])
+            data = data.to(self.dev)
+
+            self.last_predictions.append(self.model(data))
+
+        self.last_predictions = torch.cat(self.last_predictions)
         return self.last_predictions
+
     def update(self, *better_results):
         better_results = torch.stack([self._tensor(result, None) for result in better_results])
         better_results = better_results.to(self.dev)
 
-        loss = self.loss_fn(self.last_predictions, better_results)
+        losses = self.loss_fn(self.last_predictions, better_results)
+        loss = torch.mean(losses)
 
         loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
         self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return loss
+        return losses
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -74,24 +86,30 @@ def test():
 
     import perceiver_pytorch as pp
     model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
     perform = Perform(model, criterion, optimizer, dev = 'cuda:0')
 
     import time
     last_time = time.time()
+    start_time = last_time
+    starting_loss = None
     running_loss = 0.0
     for i, data in enumerate(trainloader, 0):
         inputs, labels = data
         perform.predict(*inputs.permute(0,2,3,1))  
-        loss = perform.update(*labels)
-        running_loss += loss.item()
+        losses = perform.update(*labels)
+        maxloss = torch.max(losses)
+        if starting_loss is None or maxloss > starting_loss:
+            starting_loss = maxloss
+        running_loss += torch.sum(losses)
         if i % 16 == 0:
             cur_time = time.time()
             if cur_time - last_time > 0.2:
                 last_time = cur_time
-                print('%5d loss=%.3f running_loss=%.3f' % (i, loss, running_loss))
+                lossrate = (starting_loss - maxloss) / (cur_time - start_time)
+                print('%5d maxloss=%.3f running_loss=%.3f %.5f loss/s' % (i, maxloss, running_loss, lossrate))
 
     print('trained')
     import numpy as np
