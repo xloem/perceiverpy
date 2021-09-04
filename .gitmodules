@@ -4,3 +4,9 @@
 [submodule "extern/lucidrains/perceiver-pytorch"]
 	path = extern/lucidrains/perceiver-pytorch
 	url = https://github.com/lucidrains/perceiver-pytorch.git
+[submodule "extern/esceptico/perceiver-io"]
+	path = extern/esceptico/perceiver-io
+	url = https://github.com/esceptico/perceiver-io.git
+[submodule "extern/Rishit-dagli/Perceiver"]
+	path = extern/Rishit-dagli/Perceiver
+	url = https://github.com/Rishit-dagli/Perceiver.git
