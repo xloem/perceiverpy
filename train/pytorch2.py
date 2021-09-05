@@ -1,7 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-from pytorch_model import PytorchModel
+from pytorch_model import NamedModel, PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -41,10 +41,11 @@ class SuperTrainer:
 
     # todo: what we care about wrt chosing examples to train further (and other parameters), is not actually how bad their loss is: but rather how much training from them reduces the loss for new data.
 
-    def __init__(self, performer, databatches):
+    def __init__(self, performer, databatches, num_batches=256):
         self.performer = performer
         self.databatches = iter(databatches)
         self._nextidx = 0
+        self.num_batches = num_batches
         self.batch_losses = []
 
         #self.__iter = iter(databatches)
@@ -116,7 +117,7 @@ class SuperTrainer:
 
     def _newbatch(self):
         batch = SuperTrainer.BatchLoss(self)
-        if len(self.batch_losses) >= 256:
+        if len(self.batch_losses) >= self.num_batches:
             if batch > self.batch_losses[0]:
                 # this code of dropping the easiest batch, and placing the new batch at the head,
                 # is kept to preserve the concept of the newest being the most interesting,
@@ -221,12 +222,12 @@ class Test:
         self.classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
         import perceiver_pytorch as pp
-        self.model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
+        self.model = NamedModel(pp.Perceiver, input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
         self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
         #self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
-        self.perform = PytorchModel(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
+        self.perform = PytorchModel(self.model, self.criterion, self.optimizer)
 
         self.trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.trainloader)
         self.testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.testloader)

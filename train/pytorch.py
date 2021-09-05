@@ -1,7 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-from pytorch_model import PytorchModel
+from pytorch_model import NamedModel, PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -37,12 +37,12 @@ def test():
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     import perceiver_pytorch as pp
-    model = pp.Perceiver(input_channels=3, input_axis=2, fourier_encode_data=True, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
+    model = NamedModel(pp.Perceiver, input_channels=3, input_axis=2, fourier_encode_data=True, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
     #print(next(model.parameters()), 'sometimes i see model parameters that start for some reason all near zero.  that is a bug.  parameters above should be near unit magnitude.')
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    perform = PytorchModel(model, criterion, optimizer, dev = 'cuda:0')
+    perform = PytorchModel(model, criterion, optimizer)
 
     import time
     last_time = time.time()
@@ -75,6 +75,7 @@ def test():
                         last_time = cur_time
                         running_loss = 0
                         running_ct = 0
+                        perform.save()
 
     print('trained')
     import numpy as np

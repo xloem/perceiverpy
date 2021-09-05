@@ -240,7 +240,7 @@ def test():
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    perform = PytorchModel(model, criterion, optimizer, dev = 'cuda:0')
+    perform = PytorchModel(model, criterion, optimizer)
 
     trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), trainloader)
     testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), testloader)

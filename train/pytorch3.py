@@ -38,17 +38,17 @@ class SuperTrainer:
     # license: gpl-3
     # focus on the area with the greatest loss
 
-    # todo: this would work better if PytorchModel.update returned the individual losses
-    #    then disparate data could be collected in the same batch which would greatly speed learning important differences
-
     # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
+    # todo: label data as certain/unsure to help train the model to be useful, notably reducing focus on uncertain data
+
+    # todo: what we care about wrt chosing examples to train further (and other parameters), is not actually how bad their loss is: but rather how much training from them reduces the loss for new data.
 
     def __init__(self, performer, databatches, num_batches=256):
         self.performer = performer
         self.databatches = iter(databatches)
         self._nextidx = 0
-        self.num_batches = num_batches
         self.batch_losses = []
+        self.num_batches = num_batches
 
         #self.__iter = iter(databatches)
         #self.__iteridx = self._nextidx
@@ -124,7 +124,9 @@ class SuperTrainer:
                 yield max_loss.idxs, float(max_loss)#.losses
             
                 print('working on hardest items, target:', self.baseline)
-                self.trainer.optimizer.load_state_dict(self.trainer.optimizer_state)
+
+                # it would make sense for performer to do training itself
+                self.performer.optimizer.load_state_dict(self.performer.optimizer_state)
                 #yield newest
             else:
                 sys.stderr.write(str(self.batch_losses[-1]) + '\r')
@@ -259,9 +261,9 @@ class Test:
         self.model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
         self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
         #self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
-        self.optimizer = torch.optim.Rprop()
+        self.optimizer = torch.optim.Rprop(self.model.parameters())
 
-        self.perform = PytorchModel(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
+        self.perform = PytorchModel(self.model, self.criterion, self.optimizer)
 
         self.trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.trainloader)
         self.testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.testloader)
