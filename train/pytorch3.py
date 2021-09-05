@@ -3,54 +3,7 @@ import torch
 
 import sys
 
-class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(reduction='none'), optimizer = None, dev = 'cuda:0'):
-        if optimizer is None:
-            optimizer = torch.optim.Rprop()
-            #optimizer = 1e-3
-        if type(optimizer) is float:
-            #optimizer = torch.optim.Adam(model.parameters(), lr=optimizer)
-            optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
-        if type(dev) is str:
-            dev = torch.device(dev)
-        model.to(dev)
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.optimizer_state = optimizer.state_dict()
-        self.dev = dev
-        self.last_result = None
-    @staticmethod
-    def _tensor(data, dev):
-        if type(data) is not torch.Tensor:
-            data = torch.tensor(data, device=dev)
-        return data
-    def predict(self, *data):
-        return self.predict_many(data)
-    def predict_many(self, *datas):
-        self.optimizer.zero_grad() # reset gradients of parameters
-        self.last_predictions = []
-
-        for data in datas:
-
-            data = torch.stack([self._tensor(item, None) for item in data])
-            data = data.to(self.dev)
-
-            self.last_predictions.append(self.model(data))
-
-        self.last_predictions = torch.cat(self.last_predictions)
-        return self.last_predictions
-
-    def update(self, *better_results):
-        better_results = torch.stack([self._tensor(result, None) for result in better_results])
-        better_results = better_results.to(self.dev)
-
-        losses = self.loss_fn(self.last_predictions, better_results)
-        loss = torch.mean(losses)
-
-        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
-        self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return losses
+from pytorch_model import PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -85,7 +38,7 @@ class SuperTrainer:
     # license: gpl-3
     # focus on the area with the greatest loss
 
-    # todo: this would work better if Performer.update returned the individual losses
+    # todo: this would work better if PytorchModel.update returned the individual losses
     #    then disparate data could be collected in the same batch which would greatly speed learning important differences
 
     # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
@@ -305,9 +258,10 @@ class Test:
         import perceiver_pytorch as pp
         self.model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
         self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        #self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        self.optimizer = torch.optim.Rprop()
 
-        self.perform = Perform(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
+        self.perform = PytorchModel(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
 
         self.trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.trainloader)
         self.testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), self.testloader)
@@ -346,7 +300,6 @@ class Test:
         labels = [np.argmax(i) for i in preds]
         print('preds:', [self.classes[l] for l in labels])
 
-#perform = Perform(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
 if __name__ == '__main__':
     Test().test()
 

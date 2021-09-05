@@ -1,54 +1,7 @@
 import perceiver_pytorch as pp
 import torch
 
-class Perform:
-    def __init__(self, model, loss_fn = torch.nn.CrossEntropyLoss(reduction='none'), optimizer = None, dev = 'cuda:0'):
-        if optimizer is None:
-            #optimizer = torch.optim.Rprop()
-            optimizer = 1e-3
-        if type(optimizer) is float:
-            #optimizer = torch.optim.Adam(model.parameters(), lr=optimizer)
-            optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
-        if type(dev) is str:
-            dev = torch.device(dev)
-        model.to(dev)
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.optimizer_state = optimizer.state_dict()
-        self.dev = dev
-        self.last_result = None
-    @staticmethod
-    def _tensor(data, dev):
-        if type(data) is not torch.Tensor:
-            data = torch.tensor(data, device=dev)
-        return data
-    def predict(self, *data):
-        return self.predict_many(data)
-    def predict_many(self, *datas):
-        self.optimizer.zero_grad() # reset gradients of parameters
-        self.last_predictions = []
-
-        for data in datas:
-
-            data = torch.stack([self._tensor(item, None) for item in data])
-            data = data.to(self.dev)
-
-            self.last_predictions.append(self.model(data))
-
-        self.last_predictions = torch.cat(self.last_predictions)
-        return self.last_predictions
-
-    def update(self, *better_results):
-        better_results = torch.stack([self._tensor(result, None) for result in better_results])
-        better_results = better_results.to(self.dev)
-
-        losses = self.loss_fn(self.last_predictions, better_results)
-        loss = torch.mean(losses)
-
-        loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
-        self.optimizer.step() # adjust parameters by gradients collected in backward()
-        return losses
+from pytorch_model import PytorchModel
 
 # i think sklearn has arch around this, unsure
       #  num_freq_bands: Number of freq bands, with original value (2 * K + 1)
@@ -83,7 +36,7 @@ class SuperTrainer:
     # license: gpl-3
     # focus on the area with the greatest loss
 
-    # todo: this would work better if Performer.update returned the individual losses
+    # todo: this would work better if PytorchModel.update returned the individual losses
 
     def __init__(self, performer, databatches):
         self.performer = performer
@@ -100,9 +53,12 @@ class SuperTrainer:
 
         self.baseline = self.batch_losses[0].loss#2#0.5
 
-            # it can get stuff right by chance, and that happens with the first batch
-            # so waiting for that first batch to bubble up fails
-            # averaging it with something would help; i guess the hardest
+        for batch_loss in self.batch_losses:
+            yield batch_loss.idxs, batch_loss.idxs, batch_loss.losses
+
+        # it can get stuff right by chance, and that happens with the first batch
+        # so waiting for that first batch to bubble up fails
+        # averaging it with something would help; i guess the hardest
 
         #hardest_loss = self.batch_losses[-1].loss
         #newest = self.batch_losses[0]
@@ -120,16 +76,23 @@ class SuperTrainer:
                 easiest = self.batch_losses[0]
 
                 # new data too
-                newest = self._newbatch()
+                #print('getting a new batch')
+                try:
+                    newest = self._newbatch()
+                except StopIteration:
+                    return
                 newest.epoch = epoch
+                #print('new data, loss =', newest.loss.item())
+                yield hardest.idxs, newest.idxs, newest.losses
 
                 max_loss = easiest if easiest > newest else newest
 
                 for item in self.batch_losses:
                     item.epoch = epoch
-                    if item is not hardest:
-                        # OOPS: we'd probably only want to backpropagate if predictions are much worse
-                        item.update()
+                    # until OOPS is handled, below is commented out to prevent fitting on recent properties rather than new diversity
+                    #if item is not hardest:
+                    #    # OOPS: we'd probably only want to backpropagate if predictions are much worse
+                    #    item.update()
                     if item.loss > max_loss:
                         max_loss = item
                     #elif item.loss < self.baseline:
@@ -137,9 +100,10 @@ class SuperTrainer:
                         #yield item
 
                 hardest = max_loss
-                self.baseline = (hardest.loss + easiest.loss) / 2
+                self.baseline = (hardest.loss + easiest.loss) / 2 # this can hit 0.000, which likely confuses the model, overfitting it needleslly.  a minimum relating to the number of datapoints could make sense  
+                                                                  # maybe instead of a loss baseline, it would make more sense to have predictions be correct.  [also option of predicting class and alternate class or such]
                     
-                yield max_loss.idxs, max_loss.loss
+                #yield max_loss.idxs, max_loss.loss
                 #yield newest
             else:
                 hardest = self.batch_losses[-1]
@@ -169,8 +133,12 @@ class SuperTrainer:
     def _newbatch(self):
         batch = SuperTrainer.BatchLoss(self)
         if len(self.batch_losses) >= 256:
-            self.batch_losses[:-1] = self.batch_losses[1:]
-            self.batch_losses[-1] = batch
+            if batch > self.batch_losses[0]:
+                # this code of dropping the easiest batch, and placing the new batch at the head,
+                # is kept to preserve the concept of the newest being the most interesting,
+                # in case of redesign
+                self.batch_losses[:-1] = self.batch_losses[1:]
+                self.batch_losses[-1] = batch
         else:
             self.batch_losses.append(batch)
         return batch
@@ -194,7 +162,8 @@ class SuperTrainer:
             #loss = torch.mean(losses)
             offset = 0
             for batch in batches:
-                batch.losses = losses[offset:offset+len(batch)]
+                # .detach because gradients accumulate unbounded history when resliced during sorting
+                batch.losses = losses[offset:offset+len(batch)].detach()
                 batch.loss = torch.max(batch.losses).item()
                 offset += len(batch)
                 #batch.loss = torch.mean(batch.losses)
@@ -219,15 +188,16 @@ class SuperTrainer:
             labels = torch.cat([batch.batch[1] for batch in batches])
             losses = torch.cat([batch.losses for batch in batches])
 
-            shuf = torch.sort(losses).indices
+            shuf = torch.sort(losses).indices.cpu()
 
             offset = 0
             for batch in batches:
                 idcs = shuf[offset:offset+len(batch)]
-                batch.idxs = idxs[idcs]
-                batch.batch = (inputs[idcs], labels[idcs])
-                batch.losses = losses[idcs]
-                batch.loss = torch.max(batch.losses).item()
+                if not torch.equal(idcs, torch.arange(offset, offset + len(batch))):
+                    batch.idxs = idxs[idcs]
+                    batch.batch = (inputs[idcs], labels[idcs])
+                    batch.losses = losses[idcs]
+                    batch.loss = torch.max(batch.losses).item()
                 offset += len(batch)
         def __len__(self):
             return len(self.batch[0])
@@ -270,7 +240,7 @@ def test():
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    perform = Perform(model, criterion, optimizer, dev = 'cuda:0')
+    perform = PytorchModel(model, criterion, optimizer, dev = 'cuda:0')
 
     trainloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), trainloader)
     testloader = transformed_list(lambda batch: (batch[0].permute(0,2,3,1), batch[1]), testloader)
@@ -278,24 +248,40 @@ def test():
 
     import time
     last_time = time.time()
-    starting_loss = None
-    #running_loss = 0.0
-    #running_last = -1
+    start_time = last_time
+    last_avg_loss = None
+    running_loss = 0.0
+    running_baseline = 0.0
+    running_ct = 0
     idx = 0
+    last_idxs = None
     trainer = SuperTrainer(perform, trainloader)
-    for i, loss in trainer.train():
-        if starting_loss is None or loss > starting_loss:
-            starting_loss = loss
-        #running_loss += loss
-        #if idx % 16 == 0:
-        #    cur_time = time.time()
-        #    if cur_time - last_time > 0.2:
-        #        last_time = cur_time
-        #        print('%5d loss=%.3f avg=%.3f' % (i, loss, running_loss / (idx - running_last)))
-        #        running_loss = 0
-        #        running_last = idx
-        print('%s maxloss=%.3f baseline=%.3f %.5f loss/s' % ([w.item() for w in i], loss, trainer.baseline, (starting_loss - loss) / (time.time() - last_time)))
-        idx += 1
+    for learned_idxs, idxs, losses in trainer.train():
+        running_loss += torch.sum(losses)
+        running_baseline += trainer.baseline * len(losses)
+        running_ct += len(losses)
+        idx += len(losses)
+
+        if last_idxs is None:
+            last_idxs = learned_idxs
+        elif not torch.equal(last_idxs, learned_idxs):
+            print('%s maxloss=%.3f avg_loss=%.3f newbaseline=%.3f' % (str([i.item() for i in last_idxs]), torch.max(losses), running_loss / running_ct, trainer.baseline))
+            last_idxs = learned_idxs
+        if idx % 256 == 0 and running_ct > len(losses):
+            cur_time = time.time()
+            if cur_time - last_time > 0.2:
+                avg_loss = running_loss / running_ct
+                avg_baseline = running_baseline / running_ct
+                if last_avg_loss is None:
+                    last_avg_loss = float('nan')
+                lossrate = (last_avg_loss - avg_loss) / (cur_time - last_time)
+                if not lossrate < 0 or cur_time - last_time >= 60:
+                    print('%5d avg_loss=%.3f %.5f loss/min avg_baseline=%.3f' % (idx, avg_loss, 60*lossrate, avg_baseline))
+                    last_avg_loss = avg_loss
+                    last_time = cur_time
+                    running_loss = 0
+                    running_baseline = 0
+                    running_ct = 0
 
     print('trained')
     import numpy as np
@@ -308,7 +294,7 @@ def test():
     labels = [np.argmax(i) for i in preds]
     print('preds:', [classes[l] for l in labels])
 
-#perform = Perform(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
+#perform = PytorchModel(pp.Perceiver(input_channels=1, input_axis=1, depth=6, fourier_encode_data=False, num_freq_bands=None, max_freq=None))
 if __name__ == '__main__':
     test()
 

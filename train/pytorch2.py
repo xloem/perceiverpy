@@ -89,9 +89,10 @@ class SuperTrainer:
 
                 for item in self.batch_losses:
                     item.epoch = epoch
-                    if item is not hardest and max_loss.loss > self.baseline:
-                        # OOPS: we'd probably only want to backpropagate if predictions are much worse
-                        item.update()
+                    # until OOPS is handled, below is commented out to prevent fitting on recent properties rather than new diversity
+                    #if item is not hardest and max_loss.loss > self.baseline:
+                    #    # OOPS: we'd probably only want to backpropagate if predictions are much worse
+                    #    item.update()
                     if item.loss > max_loss:
                         max_loss = item
                     #elif item.loss < self.baseline:
@@ -222,7 +223,8 @@ class Test:
         import perceiver_pytorch as pp
         self.model = pp.Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10.0, depth=6, num_latents=32, latent_dim=128, cross_heads=1, latent_heads=2, cross_dim_head=8, latent_dim_head=8, num_classes=10, attn_dropout=0.0, ff_dropout=0.0, weight_tie_layers=False)
         self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        #self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
         self.perform = PytorchModel(self.model, self.criterion, self.optimizer, dev = 'cuda:0')
 
@@ -234,7 +236,6 @@ class Test:
         import time
         last_time = time.time()
         start_time = last_time
-        start_loss = None
         last_avg_loss = None
         running_loss = 0.0
         running_baseline = 0.0
