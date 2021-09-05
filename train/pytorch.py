@@ -51,7 +51,7 @@ def test():
     last_avg_loss = None
     running_loss = 0.0
     running_ct = 0
-    for epoch in range(3):
+    for epoch in range(4):
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data
@@ -69,11 +69,12 @@ def test():
                     if last_avg_loss is None:
                         last_avg_loss = float('nan')
                     lossrate = (last_avg_loss - avg_loss) / (cur_time - last_time)
-                    print('%d %5d avg_loss=%.3f %.5f loss/min' % (epoch+1, i * len(losses), avg_loss, 60*lossrate))
-                    last_avg_loss = avg_loss
-                    last_time = cur_time
-                    running_loss = 0
-                    running_ct = 0
+                    if not lossrate < 0 or cur_time - last_time >= 60:
+                        print('%d %5d avg_loss=%.3f %.5f loss/min' % (epoch+1, i * len(losses), avg_loss, 60*lossrate))
+                        last_avg_loss = avg_loss
+                        last_time = cur_time
+                        running_loss = 0
+                        running_ct = 0
 
     print('trained')
     import numpy as np

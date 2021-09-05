@@ -37,7 +37,9 @@ class SuperTrainer:
     # focus on the area with the greatest loss
 
     # human supervision: we would want to queue and rank data based on how extreme it is, and how lacking the human-label is in the known data.  this could provide for humans labeling mnost effectivelly.
-    # todo: label data as certain/unsure to help train the model
+    # todo: label data as certain/unsure to help train the model to be useful, notably reducing focus on uncertain data
+
+    # todo: what we care about wrt chosing examples to train further (and other parameters), is not actually how bad their loss is: but rather how much training from them reduces the loss for new data.
 
     def __init__(self, performer, databatches):
         self.performer = performer
@@ -71,7 +73,10 @@ class SuperTrainer:
                 # new data too
                 #print('getting a new batch')
                 while True:
-                    newest = self._newbatch()
+                    try:
+                        newest = self._newbatch()
+                    except StopIteration:
+                        return
                     newest.epoch = epoch
                     #print('new data, loss =', newest.loss.item())
                     yield hardest.idxs, newest.idxs, newest.losses
@@ -101,7 +106,7 @@ class SuperTrainer:
                     
                 #yield max_loss.idx, max_loss.loss
             
-                #print('target:', self.baseline.item())
+                #print('target:', self.baseline)
                 #yield newest
             else:
                 hardest = self.batch_losses[-1]
@@ -140,7 +145,8 @@ class SuperTrainer:
             #loss = torch.mean(losses)
             offset = 0
             for batch in batches:
-                batch.losses = losses[offset:offset+len(batch)]
+                # .detach because gradients accumulate unbounded history when resliced during sorting
+                batch.losses = losses[offset:offset+len(batch)].detach()
                 batch.loss = torch.max(batch.losses).item()
                 offset += len(batch)
                 #batch.loss = torch.mean(batch.losses)
@@ -165,15 +171,16 @@ class SuperTrainer:
             labels = torch.cat([batch.batch[1] for batch in batches])
             losses = torch.cat([batch.losses for batch in batches])
 
-            shuf = torch.sort(losses).indices
+            shuf = torch.sort(losses).indices.cpu()
 
             offset = 0
             for batch in batches:
                 idcs = shuf[offset:offset+len(batch)]
-                batch.idxs = idxs[idcs]
-                batch.batch = (inputs[idcs], labels[idcs])
-                batch.losses = losses[idcs]
-                batch.loss = torch.max(batch.losses).item()
+                if not torch.equal(idcs, torch.arange(offset, offset + len(batch))):
+                    batch.idxs = idxs[idcs]
+                    batch.batch = (inputs[idcs], labels[idcs])
+                    batch.losses = losses[idcs]
+                    batch.loss = torch.max(batch.losses).item()
                 offset += len(batch)
         def __len__(self):
             return len(self.batch[0])
@@ -233,27 +240,33 @@ class Test:
         running_baseline = 0.0
         running_ct = 0
         idx = 0
+        last_idxs = None
         for learned_idxs, idxs, losses in self.trainer.train():
             running_loss += torch.sum(losses)
             running_baseline += self.trainer.baseline * len(losses)
             running_ct += len(losses)
             idx += len(losses)
             
-            print('%s maxloss=%.3f avg_loss=%.3f newbaseline=%.3f' % (str([i.item() for i in learned_idxs]), torch.max(losses), running_loss / running_ct, self.trainer.baseline))
-            if idx % 1024 == 0 and running_ct > len(losses):
+            if last_idxs is None:
+                last_idxs = learned_idxs
+            elif not torch.equal(last_idxs, learned_idxs):
+                print('%s maxloss=%.3f avg_loss=%.3f newbaseline=%.3f' % (str([i.item() for i in last_idxs]), torch.max(losses), running_loss / running_ct, self.trainer.baseline))
+                last_idxs = learned_idxs
+            if idx % 256 == 0 and running_ct > len(losses):
                 cur_time = time.time()
                 if cur_time - last_time > 0.2:
                     avg_loss = running_loss / running_ct
                     avg_baseline = running_baseline / running_ct
                     if last_avg_loss is None:
-                        las_avg_loss = float('nan')
+                        last_avg_loss = float('nan')
                     lossrate = (last_avg_loss - avg_loss) / (cur_time - last_time)
-                    print('%5d avg_loss=%.3f %.5f loss/min avg_baseline=%.3f' % (idx, avg_loss, 60*lossrate, avg_baseline))
-                    last_avg_loss = avg_loss
-                    last_time = cur_time
-                    running_loss = 0
-                    running_baseline = 0
-                    running_ct = 0
+                    if not lossrate < 0 or cur_time - last_time >= 60:
+                        print('%5d avg_loss=%.3f %.5f loss/min avg_baseline=%.3f' % (idx, avg_loss, 60*lossrate, avg_baseline))
+                        last_avg_loss = avg_loss
+                        last_time = cur_time
+                        running_loss = 0
+                        running_baseline = 0
+                        running_ct = 0
     
         print('trained')
         import numpy as np
