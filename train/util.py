@@ -1,3 +1,4 @@
+import os
 import torch 
 
 
@@ -20,8 +21,8 @@ def batch_pair_combinations(batch1idx, batch2idx, batchlenlog2, shuffle = True):
     orthosize = 1
     while True:
         if shuffle:
-            yield comb[:batchlen][torch.randperm(batchlen)]
-            yield comb[batchlen:][torch.randperm(batchlen)]
+            yield comb[:batchlen][torch.cat((torch.randperm(batchlen), torch.randperm(batchlen) + batchlen))]
+            yield comb[batchlen:][torch.cat((torch.randperm(batchlen), torch.randperm(batchlen) + batchlen))]
         else:
             yield comb[:batchlen]
             yield comb[batchlen:]
@@ -38,6 +39,51 @@ def batch_pair_combinations(batch1idx, batch2idx, batchlenlog2, shuffle = True):
         comb_view[:orthosize, nextchecker:] = orig_view[orthosize:, nextchecker:]
         checkersize = nextchecker
         orthosize = nextortho
+
+def name2path(*names):
+    return os.path.join('.', 'models', *names[:-1], names[-1] + '.pystate')
+
+def path2name(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+def stack2name(maxdepth=2):
+    import inspect
+    result = []
+    depth = 0
+    lastfile = None
+    for frame in inspect.stack()[1:]:
+        name = path2name(frame.filename)
+        if '<' not in name:
+            if name != lastfile:
+                lastfile = name
+                depth += 1
+                if depth > maxdepth:
+                    break
+            #name += '.' + str(frame.lineno)
+            if '<' not in frame.function:
+                name += '.' + frame.function
+            result.append(name)
+    result.reverse()
+    return '-'.join(result)
+
+def dict2name(dict):
+    def shorten(val):
+        if type(val) is str:
+            result = ''
+            lastchr = ''
+            for chr in val:
+                if lastchr == '' or lastchr == '_':
+                    result += chr
+                lastchr = chr
+            return result
+        elif type(val) is bool:
+            return 'fT'[val]
+        else:
+            return str(val)
+    return ''.join((
+        shorten(key) + shorten(value)
+        for key, value in dict.items()
+    ))
 
 if __name__ == '__main__':
     for comb in batch_pair_combinations(0, 4, 2):

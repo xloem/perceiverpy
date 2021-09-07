@@ -3,54 +3,11 @@ import torch
 import os
 import weakref
 
-def name2path(*names):
-    return os.path.join('.', 'models', *names[:-1], names[-1] + '.pystate')
-
-def path2name(path):
-    return os.path.splitext(os.path.basename(path))[0]
-
-default_device = torch.device(('cpu','cuda:0')[torch.cuda.is_available()])
-
-def stack2name(maxdepth=2):
-    import inspect
-    result = []
-    depth = 0
-    lastfile = None
-    for frame in inspect.stack()[1:]:
-        name = path2name(frame.filename)
-        if '<' not in name:
-            if name != lastfile:
-                lastfile = name
-                depth += 1
-                if depth > maxdepth:
-                    break
-            #name += '.' + str(frame.lineno)
-            if '<' not in frame.function:
-                name += '.' + frame.function
-            result.append(name)
-    result.reverse()
-    return '-'.join(result)
-
-def dict2name(dict):
-    def shorten(val):
-        if type(val) is str:
-            result = ''
-            lastchr = ''
-            for chr in val:
-                if lastchr == '' or lastchr == '_':
-                    result += chr
-                lastchr = chr
-            return result
-        elif type(val) is bool:
-            return 'fT'[val]
-        else:
-            return str(val)
-    return ''.join((
-        shorten(key) + shorten(value)
-        for key, value in dict.items()
-    ))
+from util import name2path, path2name, stack2name, dict2name
 
 _models = weakref.WeakValueDictionary()
+
+default_device = torch.device(('cpu','cuda:0')[torch.cuda.is_available()])
 
 def NamedModel(model_class, dev = default_device, **kwparams):
     name = model_class.__name__ + '-' + dict2name(kwparams)
@@ -74,7 +31,7 @@ class PytorchModel:
             #optimizer = torch.optim.Adam(model.parameters(), lr=optimizer)
             optimizer = torch.optim.SGD(model.parameters(), lr=optimizer)
         model = namedmodel
-        if hasattr(model, 'name') and hasattr(model, 'dev'):
+        if hasattr(model, 'name') and hasattr(model, 'device'):
             modelname = model.name
             self.dev = model.device
         else:
@@ -97,6 +54,12 @@ class PytorchModel:
         torch.save(self.model.state_dict(), self.state_filename)
     def load(self):
         self.model.load_state_dict(torch.load(self.state_filename))
+    def to_snapshot(self):
+        return (self.optimizer.state_dict(), self.model.state_dict())
+    def from_snapshot(self, snapshot):
+        optimizer_state, model_state = snapshot
+        self.optimizer.load_state_dict(optimizer_state)
+        self.model.load_state_dict(model_state)
     @staticmethod
     def _tensor(data, dev):
         if type(data) is not torch.Tensor:
@@ -119,14 +82,22 @@ class PytorchModel:
 
         self.last_predictions = torch.cat(self.last_predictions)
         return self.last_predictions
-
-    def update(self, *better_results):
+    def losses(self, *better_results):
         better_results = torch.stack([self._tensor(result, None) for result in better_results])
         better_results = better_results.to(self.dev)
-
-        losses = self.loss_fn(self.last_predictions, better_results)
+        return self.loss_fn(self.last_predictions, better_results)
+    def predict_losses(self, *data, results):
+        with torch.no_grad():
+            self.predict(*data)
+            return self.losses(*results)
+    def predict_many_losses(self, *datas, results):
+        with torch.no_grad():
+            self.predict_many(*datas)
+            return self.losses(*results)
+    def update(self, *better_results, losses=None):
+        if losses is None:
+            losses = self.losses(*better_results)
         loss = torch.mean(losses)
-
         loss.backward() # backpropagate prediction loss, deposit gradients of loss wrt each parameter
         self.optimizer.step() # adjust parameters by gradients collected in backward()
         return losses
