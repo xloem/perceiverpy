@@ -10,3 +10,6 @@
 [submodule "extern/Rishit-dagli/Perceiver"]
 	path = extern/Rishit-dagli/Perceiver
 	url = https://github.com/Rishit-dagli/Perceiver.git
+[submodule "extern/krasserm/perceiver-io"]
+	path = extern/krasserm/perceiver-io
+	url = https://github.com/krasserm/perceiver-io.git
