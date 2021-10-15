@@ -115,7 +115,8 @@ input_tokens = tokenizer.to_int(input_str)
 # Mask " missing.". Note that the model performs much better if the masked chunk
 # starts with a space.
 #input_tokens[51:60] = tokenizer.mask_token
-input_tokens[input_str.find(" incomplete"):60] = tokenizer.mask_token
+masked_text = " missing."
+input_tokens[input_str.find(masked_text):input_str.find(masked_text) + len(masked_text)] = tokenizer.mask_token
 print("Tokenized string without masked bytes:")
 print(tokenizer.to_string(input_tokens))
 
